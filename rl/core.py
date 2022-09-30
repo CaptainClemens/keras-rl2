@@ -40,6 +40,7 @@ class Agent:
         self.processor = processor
         self.training = False
         self.step = 0
+        self.episode = 1
 
     def get_config(self):
         """Configuration of the agent for serialization.
@@ -223,6 +224,7 @@ class Agent:
                     callbacks.on_episode_end(episode, episode_logs)
 
                     episode += 1
+                    self.episode = episode
                     observation = None
                     episode_step = None
                     episode_reward = None

@@ -167,6 +167,64 @@ class EpsGreedyQPolicy(Policy):
             action = np.argmax(q_values)
         return action
 
+class DecayEpsGreedyQPolicy(Policy):
+    """Implement the epsilon greedy policy with declining epsilon
+
+    Eps Greedy policy either:
+
+    - takes a random action with probability epsilon
+    - takes current best action with prob (1 - epsilon)
+    """
+
+    def __init__(self, eps=.1, enable_epsilon_decay=False, eps_min=.01, eps_start=1.0, decay=0.0005):
+        super().__init__()
+        self.decay_flag = enable_epsilon_decay
+        self.epsilon_min = eps_min  # minimum exploration probability
+        self.epsilon_decay = decay  # exponential decay rate for exploration prob
+        if self.decay_flag:
+            self.eps = eps_start
+            self.eps_history = [self.eps]
+        else:
+            self.eps = eps
+        self.count = 0
+        self.last_episode = 1
+
+
+    def select_action(self, q_values):
+        """Return the selected action
+
+        # Arguments
+            q_values (np.ndarray): List of the estimations of Q for each action
+
+        # Returns
+            Selection action
+        """
+
+        if self.decay_flag:
+            if self.last_episode < self.agent.episode:
+                if self.eps > self.epsilon_min:
+                    self.eps *= (1 - self.epsilon_decay)
+                explore_probability = self.eps
+                self.eps_history.append(self.eps)
+            elif self.agent.episode == 1:
+                explore_probability = self.eps
+            else:
+                explore_probability = self.eps
+        else:
+            explore_probability = self.eps
+
+        assert q_values.ndim == 1
+        nb_actions = q_values.shape[0]
+
+        if np.random.uniform() < explore_probability:
+            action = np.random.randint(0, nb_actions)
+        else:
+            action = np.argmax(q_values)
+
+        self.last_episode = self.agent.episode
+
+        return action
+
     def get_config(self):
         """Return configurations of EpsGreedyQPolicy
 

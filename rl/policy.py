@@ -176,9 +176,10 @@ class DecayEpsGreedyQPolicy(Policy):
     - takes current best action with prob (1 - epsilon)
     """
 
-    def __init__(self, eps=.1, enable_epsilon_decay=False, eps_min=.01, eps_start=1.0, decay=0.0005):
+    def __init__(self, eps=.1, enable_epsilon_decay=False, step_dependend_exploration: bool=False, time_step=60, eps_min=.01, eps_start=1.0, decay=0.0005):
         super().__init__()
         self.decay_flag = enable_epsilon_decay
+        self.step_explor = step_dependend_exploration
         self.epsilon_min = eps_min  # minimum exploration probability
         self.epsilon_decay = decay  # exponential decay rate for exploration prob
         if self.decay_flag:
@@ -189,6 +190,9 @@ class DecayEpsGreedyQPolicy(Policy):
         self.count = 0
         self.last_episode = 1
 
+        # episode steps
+        self.steps = 0
+        self.time_step = time_step
 
     def select_action(self, q_values):
         """Return the selected action
@@ -199,17 +203,37 @@ class DecayEpsGreedyQPolicy(Policy):
         # Returns
             Selection action
         """
-
         if self.decay_flag:
-            if self.last_episode < self.agent.episode:
-                if self.eps > self.epsilon_min:
-                    self.eps *= (1 - self.epsilon_decay)
-                explore_probability = self.eps
-                self.eps_history.append(self.eps)
-            elif self.agent.episode == 1:
-                explore_probability = self.eps
+            if self.step_explor:
+                if self.last_episode < self.agent.episode:
+                    if self.eps > self.epsilon_min:
+                        self.eps *= (1 - self.epsilon_decay)
+                    # explore_probability = self.eps
+                    explore_probability = self.eps / 5 + self.eps * (
+                            (2 * self.steps) / (3600 / self.time_step))
+
+                    self.eps_history.append(self.eps)
+                    self.steps = 0  ######### neu ###########
+                elif self.agent.episode == 1:
+                    # explore_probability = self.eps
+                    explore_probability = self.eps / 5 + self.eps * (
+                            (2 * self.steps) / (3600 / self.time_step))
+                else:
+                    self.steps += 1  ######### neu ###########
+                    explore_probability = self.eps / 5 + self.eps * (
+                            (2 * self.steps) / (3600 / self.time_step))  ######### neu ###########
+                    # explore_probability = self.eps
+
             else:
-                explore_probability = self.eps
+                if self.last_episode < self.agent.episode:
+                    if self.eps > self.epsilon_min:
+                        self.eps *= (1 - self.epsilon_decay)
+                    explore_probability = self.eps
+                    self.eps_history.append(self.eps)
+                elif self.agent.episode == 1:
+                    explore_probability = self.eps
+                else:
+                    explore_probability = self.eps
         else:
             explore_probability = self.eps
 
@@ -218,6 +242,8 @@ class DecayEpsGreedyQPolicy(Policy):
 
         if np.random.uniform() < explore_probability:
             action = np.random.randint(0, nb_actions)
+            if action > 0:  ######### neu ###########
+                print(f"###### Max Explore probability der Episode= {round(explore_probability, 4)}######")  ######### neu ###########
         else:
             action = np.argmax(q_values)
 
@@ -332,6 +358,100 @@ class MaxBoltzmannQPolicy(Policy):
             action = np.random.choice(range(nb_actions), p=probs)
         else:
             action = np.argmax(q_values)
+        return action
+
+    def get_config(self):
+        """Return configurations of MaxBoltzmannQPolicy
+
+        # Returns
+            Dict of config
+        """
+        config = super().get_config()
+        config['eps'] = self.eps
+        config['tau'] = self.tau
+        config['clip'] = self.clip
+        return config
+
+
+class DecayBoltzmannQPolicy(Policy):
+    """
+    A combination of the decay eps-greedy and Boltzman q-policy.
+
+    Wiering, M.: Explorations in Efficient Reinforcement Learning.
+    PhD thesis, University of Amsterdam, Amsterdam (1999)
+
+    https://pure.uva.nl/ws/files/3153478/8461_UBA003000033.pdf
+    """
+    def __init__(self, eps=.1, tau=1., clip=(-500., 500.), enable_epsilon_decay=False, eps_min=.01, eps_start=1.0, decay=0.0005):
+        super().__init__()
+        self.eps = eps
+        self.tau = tau
+        self.clip = clip
+
+        self.decay_flag = enable_epsilon_decay
+        self.epsilon_min = eps_min  # minimum exploration probability
+        self.epsilon_decay = decay  # exponential decay rate for exploration prob
+        if self.decay_flag:
+            self.eps = eps_start
+            self.eps_history = [self.eps]
+        else:
+            self.eps = eps
+        self.count = 0
+        self.last_episode = 1
+
+        # episode steps
+        self.steps = 0
+
+    def select_action(self, q_values):
+        """Return the selected action
+        The selected action follows the BoltzmannQPolicy with probability epsilon
+        or return the Greedy Policy with probability (1 - epsilon)
+
+        # Arguments
+            q_values (np.ndarray): List of the estimations of Q for each action
+
+        # Returns
+            Selection action
+        """
+        time_step = 5  ######### neu ###########
+
+        if self.decay_flag:
+            if self.last_episode < self.agent.episode:
+                if self.eps > self.epsilon_min:
+                    self.eps *= (1 - self.epsilon_decay)
+                # explore_probability = self.eps
+                explore_probability = self.eps / 5 + self.eps * (
+                        (2 * self.steps) / (3600 / time_step))
+
+                self.eps_history.append(self.eps)
+                self.steps = 0  ######### neu ###########
+            elif self.agent.episode == 1:
+                # explore_probability = self.eps
+                explore_probability = self.eps / 5 + self.eps * (
+                        (2 * self.steps) / (3600 / time_step))
+            else:
+                self.steps += 1  ######### neu ###########
+                explore_probability = self.eps / 5 + self.eps * (
+                            (2 * self.steps) / (3600 / time_step))  ######### neu ###########
+                # explore_probability = self.eps
+        else:
+            explore_probability = self.eps
+
+        assert q_values.ndim == 1
+        q_values = q_values.astype('float64')
+        nb_actions = q_values.shape[0]
+
+        if np.random.uniform() < explore_probability:
+            exp_values = np.exp(np.clip(q_values / self.tau, self.clip[0], self.clip[1]))
+            probs = exp_values / np.sum(exp_values)
+            action = np.random.choice(range(nb_actions), p=probs)
+        else:
+            action = np.argmax(q_values)
+            if action > 0:  ######### neu ###########
+                print(f"###### Max Explore probability der Episode= {round(explore_probability, 4)}######")  ######### neu ###########
+
+        self.last_episode = self.agent.episode
+
         return action
 
     def get_config(self):
